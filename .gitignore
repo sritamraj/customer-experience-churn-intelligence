@@ -1,0 +1,81 @@
+# Python
+
+**pycache**/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+
+.venv/
+venv/
+env/
+
+# Jupyter
+
+.ipynb_checkpoints/
+
+# Environment / secrets
+
+.env
+.env.*
+!.env.example
+
+# OS / editor
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Raw and processed data
+
+data/raw/*
+!data/raw/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
+
+# Local database
+
+data/*.duckdb
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Generated modeling data and analysis outputs
+
+data/model/*.csv
+data/model/monitoring/
+data/model/*.parquet
+
+# Keep the canonical production artifacts
+
+!data/model/artifacts/
+!data/model/artifacts/*.joblib
+!data/model/artifacts/*.json
+
+# Generated reports / temporary files
+
+*.log
+*.tmp
+
+# Model directory is currently intentionally empty
+
+models/*.joblib
+models/*.pkl
+models/*.pickle
+models/*.onnx
+
+# Python distribution/build artifacts
+
+build/
+dist/
+*.egg-info/
+
+# Coverage / test cache
+
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
