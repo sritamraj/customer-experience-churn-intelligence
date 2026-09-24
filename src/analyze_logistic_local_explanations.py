@@ -1,12 +1,9 @@
 from pathlib import Path
+import json
 
+import joblib
 import numpy as np
 import pandas as pd
-
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 
 # ============================================================
@@ -18,105 +15,105 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRAIN_PATH = PROJECT_ROOT / "data" / "model" / "train.csv"
 VALIDATION_PATH = PROJECT_ROOT / "data" / "model" / "validation.csv"
 
-OUTPUT_DIR = PROJECT_ROOT / "data" / "model"
+ARTIFACT_DIR = (
+    PROJECT_ROOT
+    / "data"
+    / "model"
+    / "artifacts"
+)
 
-RANDOM_STATE = 42
+MODEL_PATH = ARTIFACT_DIR / "logistic_model.joblib"
+CALIBRATOR_PATH = ARTIFACT_DIR / "sigmoid_calibrator.joblib"
+METADATA_PATH = ARTIFACT_DIR / "model_metadata.json"
+
+OUTPUT_DIR = PROJECT_ROOT / "data" / "model"
 
 TARGET = "future_purchase_flag"
 
-
-# ============================================================
-# LOCKED LOGISTIC 16 FEATURES
-# ============================================================
-
-FEATURES = [
-    "recency_days",
-    "customer_age_days",
-    "frequency",
-    "monetary",
-    "historical_avg_order_value",
-    "historical_avg_review_score",
-    "historical_avg_delivery_days",
-    "historical_avg_delivery_delay",
-    "historical_freight_value",
-    "historical_item_count",
-    "historical_product_count",
-    "historical_seller_count",
-    "non_delivered_order_count",
-    "avg_freight_per_order",
-    "avg_items_per_order",
-    "avg_sellers_per_order",
-]
+EXPECTED_MODEL_VERSION = "logistic_16_sigmoid_v1"
 
 
 # ============================================================
-# MODEL
-# ============================================================
-
-def build_model():
-
-    return Pipeline(
-        steps=[
-            (
-                "imputer",
-                SimpleImputer(strategy="median"),
-            ),
-            (
-                "scaler",
-                StandardScaler(),
-            ),
-            (
-                "classifier",
-                LogisticRegression(
-                    class_weight="balanced",
-                    C=1.0,
-                    max_iter=2000,
-                    random_state=RANDOM_STATE,
-                ),
-            ),
-        ]
-    )
-
-
-# ============================================================
-# SIGMOID CALIBRATION
-# ============================================================
-
-def sigmoid_calibration(raw_logit):
-
-    # Calibration parameters estimated in Step 9.
-    #
-    # IMPORTANT:
-    # These parameters were fitted using the validation period.
-    # Therefore this is an analysis/calibration demonstration,
-    # not yet the final production calibration protocol.
-
-    calibration_a = 0.0
-    calibration_b = 0.0
-
-    # Placeholder values are intentionally not hard-coded.
-    # They will be estimated below from validation data.
-
-    return calibration_a, calibration_b
-
-
-# ============================================================
-# LOAD DATA
+# LOAD FROZEN PRODUCTION ARTIFACTS
 # ============================================================
 
 print("=" * 70)
 print("LOGISTIC LOCAL EXPLAINABILITY")
 print("=" * 70)
 
+print("\nLoading frozen production artifacts...")
+
+model = joblib.load(MODEL_PATH)
+calibrator = joblib.load(CALIBRATOR_PATH)
+
+with open(METADATA_PATH, "r", encoding="utf-8") as f:
+    metadata = json.load(f)
+
+model_version = metadata["model_version"]
+features = metadata["features"]
+
+print(f"Model version: {model_version}")
+print(f"Locked feature count: {len(features)}")
+
+if model_version != EXPECTED_MODEL_VERSION:
+    raise ValueError(
+        f"Unexpected model version: {model_version}"
+    )
+
+if len(features) != 16:
+    raise ValueError(
+        f"Expected 16 locked features, got {len(features)}"
+    )
+
+
+# ============================================================
+# FROZEN PIPELINE VALIDATION
+# ============================================================
+
+expected_steps = {
+    "imputer",
+    "scaler",
+    "model",
+}
+
+actual_steps = set(model.named_steps.keys())
+
+if actual_steps != expected_steps:
+    raise ValueError(
+        "Frozen model pipeline structure mismatch.\n"
+        f"Expected: {expected_steps}\n"
+        f"Actual: {actual_steps}"
+    )
+
+imputer = model.named_steps["imputer"]
+scaler = model.named_steps["scaler"]
+classifier = model.named_steps["model"]
+
+
+# ============================================================
+# PROVENANCE CHECK
+# ============================================================
+
+print("\n" + "=" * 70)
+print("PROVENANCE CHECK")
+print("=" * 70)
+
+print("Retrained: NO")
+print("Recalibrated: NO")
+print("Test data used: NO")
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
 train = pd.read_csv(TRAIN_PATH)
 validation = pd.read_csv(VALIDATION_PATH)
 
-X_train = train[FEATURES]
-y_train = train[TARGET].astype(int)
+X_train = train[features]
+X_validation = validation[features]
 
-X_validation = validation[FEATURES]
 y_validation = validation[TARGET].astype(int)
-
 
 print("\nTrain rows:", len(train))
 print("Validation rows:", len(validation))
@@ -124,31 +121,32 @@ print("Validation buyers:", int(y_validation.sum()))
 
 
 # ============================================================
-# TRAIN LOCKED MODEL
+# VERIFY FEATURE CONTRACT
 # ============================================================
 
-print("\n" + "=" * 70)
-print("TRAINING LOCKED LOGISTIC 16")
-print("=" * 70)
+if list(X_validation.columns) != list(features):
+    raise ValueError(
+        "Validation feature order does not match locked model features."
+    )
 
-model = build_model()
-
-model.fit(
-    X_train,
-    y_train,
-)
+if list(X_train.columns) != list(features):
+    raise ValueError(
+        "Training feature order does not match locked model features."
+    )
 
 
 # ============================================================
-# EXTRACT PIPELINE COMPONENTS
+# EXTRACT FROZEN MODEL COMPONENTS
 # ============================================================
-
-imputer = model.named_steps["imputer"]
-scaler = model.named_steps["scaler"]
-classifier = model.named_steps["classifier"]
 
 coefficients = classifier.coef_[0]
 intercept = classifier.intercept_[0]
+
+
+if len(coefficients) != len(features):
+    raise ValueError(
+        "Coefficient count does not match feature count."
+    )
 
 
 # ============================================================
@@ -205,13 +203,18 @@ print(
 )
 
 if max_logit_difference < 1e-8:
-    print("PASS: contributions reconstruct the model logit.")
+    print(
+        "PASS: frozen-model contributions reconstruct "
+        "the model logit."
+    )
 else:
-    print("WARNING: contribution reconstruction mismatch.")
+    raise ValueError(
+        "Contribution reconstruction mismatch."
+    )
 
 
 # ============================================================
-# RAW MODEL SCORE
+# FROZEN MODEL PROBABILITIES
 # ============================================================
 
 raw_probabilities = model.predict_proba(
@@ -220,52 +223,19 @@ raw_probabilities = model.predict_proba(
 
 
 # ============================================================
-# FIT PLATT/SIGMOID CALIBRATION
-# ============================================================
-#
-# We use validation raw logits and validation outcomes.
-#
-# This intentionally reproduces the Step 9 calibration setup.
-# It is useful for explainability, but the validation calibration
-# is in-sample and therefore optimistic.
-#
-# A production calibration protocol will be addressed later.
+# FROZEN SIGMOID CALIBRATION
 # ============================================================
 
-from scipy.special import expit
-
-calibration_model = LogisticRegression(
-    class_weight=None,
-    C=1e6,
-    max_iter=2000,
-    random_state=RANDOM_STATE,
+calibrated_probabilities = calibrator.predict_proba(
+    model_logits
 )
-
-calibration_model.fit(
-    model_logits.reshape(-1, 1),
-    y_validation,
-)
-
-calibration_a = calibration_model.coef_[0][0]
-calibration_b = calibration_model.intercept_[0]
-
-calibrated_probabilities = expit(
-    calibration_a * model_logits
-    + calibration_b
-)
-
 
 print("\n" + "=" * 70)
-print("SIGMOID CALIBRATION")
+print("FROZEN SIGMOID CALIBRATION")
 print("=" * 70)
 
-print(
-    f"Calibration slope: {calibration_a:.8f}"
-)
-
-print(
-    f"Calibration intercept: {calibration_b:.8f}"
-)
+print("Calibration model loaded from artifact.")
+print("Calibration fit performed here: NO")
 
 
 # ============================================================
@@ -349,14 +319,14 @@ for i in range(len(validation)):
 
     positive_feature_names.append(
         " | ".join(
-            FEATURES[idx]
+            features[idx]
             for idx in top_positive
         )
     )
 
     negative_feature_names.append(
         " | ".join(
-            FEATURES[idx]
+            features[idx]
             for idx in top_negative
         )
     )
@@ -413,7 +383,7 @@ for i in range(len(validation)):
         validation.iloc[i][TARGET]
     )
 
-    for j, feature in enumerate(FEATURES):
+    for j, feature in enumerate(features):
 
         value = X_validation_imputed[i, j]
 

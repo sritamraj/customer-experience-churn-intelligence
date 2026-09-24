@@ -1,13 +1,61 @@
-# Notebook Order
+\# Notebook Strategy
 
-Create these notebooks as the project develops:
 
-1. `01_data_audit.ipynb` — data quality and leakage audit
-2. `02_sql_customer_analytics.ipynb` — SQL-derived customer metrics
-3. `03_customer_experience_eda.ipynb` — distributions and segment analysis
-4. `04_statistical_root_cause.ipynb` — hypothesis tests and confidence intervals
-5. `05_feature_engineering.ipynb` — prediction-time features
-6. `06_churn_modeling.ipynb` — model comparison and validation
-7. `07_model_explainability.ipynb` — feature/model explanation
 
-Do not fill notebooks with copied Kaggle code. Every analysis should be reproducible and explained.
+The canonical project workflow is implemented in Python and SQL scripts under `src/` and `sql/`.
+
+
+
+Notebooks are intentionally not required for the production-style pipeline.
+
+
+
+If notebooks are added later, they should be used for exploratory analysis, visualization, and interview-oriented investigation rather than as the source of truth for model training or final evaluation.
+
+
+
+\## Recommended Notebook Topics
+
+
+
+1\. Data quality and leakage exploration
+
+2\. Customer behavior exploration
+
+3\. Customer-experience analysis
+
+4\. Feature distributions and temporal drift
+
+5\. Model comparison visualization
+
+6\. Error analysis
+
+7\. Model explainability
+
+
+
+\## Reproducibility Rule
+
+
+
+The final model, calibration artifact, and final test evaluation must remain reproducible from the version-controlled Python/SQL pipeline.
+
+
+
+Do not use notebooks to:
+
+
+
+\* silently retrain the canonical model
+
+\* recalibrate on the final test set
+
+\* modify frozen artifacts
+
+\* redefine the final target
+
+\* report metrics that cannot be reproduced from the project scripts
+
+
+
+Exploratory notebook results should be treated as supporting analysis, not as the canonical execution path.

@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn.metrics import (
     log_loss,
     roc_auc_score,
+    average_precision_score,
     confusion_matrix,
     accuracy_score,
     precision_score,
@@ -313,6 +314,11 @@ def main():
         calibrated_probability,
     )
 
+    pr_auc = average_precision_score(
+        y,
+        calibrated_probability,
+    )
+
     threshold = 0.50
 
     predicted_class = (
@@ -405,6 +411,7 @@ def main():
                 "calibrated_log_loss":
                     calibrated_log_loss,
                 "roc_auc": roc_auc,
+                "pr_auc": pr_auc,
                 "threshold": threshold,
                 "tn": tn,
                 "fp": fp,
@@ -452,6 +459,11 @@ def main():
     print(
         f"ROC AUC: "
         f"{roc_auc:.6f}"
+    )
+
+    print(
+        f"PR AUC: "
+        f"{pr_auc:.6f}"
     )
 
     print()
