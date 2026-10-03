@@ -1,8 +1,8 @@
 # Customer Experience Purchase Propensity Intelligence
 
-A leakage-safe, temporally validated customer purchase-propensity ranking system designed to identify customers who are more likely to make a purchase within the next 120 days.
+A leakage-safe, temporally validated customer purchase-propensity ranking system designed to estimate which customers are more likely to make a purchase within the next 120 days.
 
-The project focuses on **customer prioritization under severe class imbalance**, rather than maximizing raw classification accuracy.
+The project combines **SQL analytics, statistical feature engineering, predictive modeling, probability calibration, customer ranking, error analysis, and production-style inference validation** to support customer prioritization and data-driven business decisions under severe class imbalance.
 
 ---
 
@@ -10,162 +10,258 @@ The project focuses on **customer prioritization under severe class imbalance**,
 
 Given a historical customer snapshot, estimate each customer's probability of making at least one purchase during the following 120 days.
 
-The resulting propensity scores can be used to rank customers for potential prioritization in retention, engagement, or marketing workflows.
+The resulting propensity scores can be used to rank customers for potential prioritization in:
+
+* customer engagement
+* retention workflows
+* marketing campaigns
+* customer-experience analysis
 
 The system uses only information available at the prediction snapshot.
 
-### Primary target
+The objective is not simply to maximize classification accuracy. The goal is to produce a leakage-safe propensity model that can:
+
+* estimate purchase probability
+* rank customers by relative propensity
+* support capacity-constrained targeting
+* provide interpretable analytical signals
+* support evaluation under severe class imbalance
+
+---
+
+## 2. End-to-End Analytical Pipeline
+
+```text
+Historical Customer / Order Data
+            |
+            v
+      SQL Data Analysis
+            |
+            v
+ Customer-Level Feature Engineering
+            |
+            v
+ Leakage Checks + Temporal Snapshots
+            |
+            v
+ Temporal Train / Validation / Test
+            |
+            v
+ Baseline + Candidate Model Comparison
+            |
+            v
+ Model Selection
+            |
+            v
+ Probability Calibration
+            |
+            v
+ Frozen Final Evaluation
+            |
+            v
+ Customer Propensity Ranking
+            |
+            v
+ Lift / Capture / Capacity Analysis
+            |
+            v
+ Error Analysis + Explainability
+            |
+            v
+ Temporal Drift Diagnostics
+            |
+            v
+ Production Artifact Validation
+```
+
+---
+
+## 3. Target Definition
+
+The prediction target is:
 
 ```text
 future_purchase_flag = 1
 ```
 
-when the customer makes at least one purchase after the snapshot date and within the following 120-day horizon.
+when a customer makes at least one purchase during the following 120-day horizon.
 
-Purchase timing defines the primary propensity target. Delivery timing is not required for the primary purchase label.
+The target is constructed from future customer behavior, while model features are restricted to information available at the historical prediction snapshot.
 
----
-
-## 2. Why Temporal Validation?
-
-Random train/test splitting can allow observations from later periods to influence evaluation of earlier-like observations.
-
-This project therefore uses chronological customer snapshots:
-
-| Dataset    | Snapshot   | Purpose                             |
-| ---------- | ---------- | ----------------------------------- |
-| Train      | 2017-09-01 | Model development                   |
-| Train      | 2017-12-01 | Model development                   |
-| Validation | 2018-03-01 | Temporal validation and calibration |
-| Test       | 2018-06-19 | Final frozen evaluation             |
-
-The final test snapshot is later than every training and validation snapshot.
-
-The final test set was not used for model fitting, model selection, or calibration.
+This separation prevents future information from entering the feature set and creating target leakage.
 
 ---
 
-## 3. Feature Contract
+## 4. SQL Analytics
 
-The final model uses exactly 16 customer-level features:
+SQL is used as part of the analytical workflow to transform transactional information into customer-level analytical features and modeling data.
 
-```text
-recency_days
-customer_age_days
-frequency
-monetary
-historical_avg_order_value
-historical_avg_review_score
-historical_avg_delivery_days
-historical_avg_delivery_delay
-historical_freight_value
-historical_item_count
-historical_product_count
-historical_seller_count
-non_delivered_order_count
-avg_freight_per_order
-avg_items_per_order
-avg_sellers_per_order
-```
+The analysis covers:
 
-The feature pipeline performs:
+* customer purchase frequency
+* monetary value
+* recency
+* order-level aggregation
+* product and seller behavior
+* delivery and customer-experience variables
+* customer-level historical statistics
+* temporal snapshot construction
+* future-purchase target construction
+* modeling-table validation
+* segment-level analysis
+* missing-value investigation
+* leakage-prone field checks
 
-```text
-Median imputation
-        ↓
-StandardScaler
-        ↓
-Logistic Regression
-```
+The SQL layer connects raw transactional data with the downstream statistical and machine-learning workflow.
 
-Two features contain missing values in the modeling data:
+### SQL techniques used in the analytical workflow
 
-* `historical_avg_review_score`
+* `SELECT`
+* `WHERE`
+* `JOIN`
+* `GROUP BY`
+* `HAVING`
+* `CASE`
+* `COUNT`
+* `COUNT(DISTINCT ...)`
+* `SUM`
+* `AVG`
+* `NULL` handling
+* conditional aggregation
+* date/time operations
+* subqueries
+* CTE-based transformations
+* customer-level aggregation
+
+---
+
+## 5. Customer-Level Feature Engineering
+
+The final model uses 16 customer-level features.
+
+### Behavioral Features
+
+* `recency_days`
+* `customer_age_days`
+* `frequency`
+* `monetary`
+
+### Customer-Experience Features
+
 * `historical_avg_order_value`
+* `historical_avg_review_score`
+* `historical_avg_delivery_days`
+* `historical_avg_delivery_delay`
+* `historical_freight_value`
 
-Missing values are handled by the model pipeline's median imputer.
+### Historical Order / Product Features
 
-No future outcome fields are supplied to the model.
+* `historical_item_count`
+* `historical_product_count`
+* `historical_seller_count`
+* `non_delivered_order_count`
 
----
+### Average Behavioral Features
 
-## 4. Development Model Comparison
+* `avg_freight_per_order`
+* `avg_items_per_order`
+* `avg_sellers_per_order`
 
-The development stage compares several approaches on a chronological development fold:
-
-```text
-Train:      2017-09-01
-Validation: 2017-12-01
-```
-
-Compared models:
-
-* Frequency baseline
-* Logistic Regression
-* Random Forest
-* XGBoost
-
-Development results:
-
-| Model               |    Log Loss |     ROC-AUC |      PR-AUC |
-| ------------------- | ----------: | ----------: | ----------: |
-| Frequency baseline  |     0.05046 |     0.50000 |     0.00879 |
-| Logistic Regression | **0.04997** |     0.57051 | **0.01776** |
-| Random Forest       |     0.11044 |     0.57312 |     0.01459 |
-| XGBoost             |     0.05101 | **0.59506** |     0.01599 |
-
-The canonical Logistic Regression model was retained based on the development evidence, particularly its development log loss and PR-AUC.
-
-This is a development-fold result, not a claim that Logistic Regression is universally superior to the other models.
-
-Only one genuine temporal development fold was available because the training data contains two training snapshots.
+These features describe historical customer behavior without directly exposing future purchase outcomes.
 
 ---
 
-## 5. Canonical Model
+## 6. Leakage Prevention and Temporal Validation
 
-Model version:
+A random train/test split would not accurately represent the intended prediction setting because the model is intended to predict future customer behavior from earlier information.
 
-```text
-logistic_16_sigmoid_v1
-```
-
-Pipeline:
+The project therefore uses chronological customer snapshots.
 
 ```text
-16 customer features
-        ↓
-Median Imputation
-        ↓
-StandardScaler
-        ↓
-LogisticRegression
-        ↓
-Sigmoid calibration
-        ↓
-Calibrated purchase propensity
+Earlier Historical Data
+        |
+        v
+Training Snapshot
+2017-09-01
+        |
+        v
+Training Snapshot
+2017-12-01
+        |
+        v
+Validation Snapshot
+2018-03-01
+        |
+        v
+Final Frozen Test
+2018-06-19
 ```
 
-Configuration:
+The final test snapshot is later than the training and validation periods.
 
-```text
-class_weight = balanced
-C = 1.0
-max_iter = 2000
-random_state = 42
-```
+The final test period is not used for:
 
-The final model and calibration artifacts are frozen.
+* model fitting
+* model selection
+* calibration
+
+### Development limitation
+
+Only one genuine temporal development fold is available for model selection because of the available snapshot structure.
+
+Therefore, the project does not claim extensive rolling-window validation.
 
 ---
 
-## 6. Probability Calibration
+## 7. Model Development and Selection
 
-The Logistic Regression model produces a raw probability/score.
+Several candidate approaches were evaluated during development.
 
-A separate sigmoid calibration model was fitted during the validation stage and then frozen.
+| Model               | Log Loss | ROC-AUC |  PR-AUC |
+| ------------------- | -------: | ------: | ------: |
+| Frequency Baseline  |  0.05046 | 0.50000 | 0.00879 |
+| Logistic Regression |  0.04997 | 0.57051 | 0.01776 |
+| Random Forest       |  0.11044 | 0.57312 | 0.01459 |
+| XGBoost             |  0.05101 | 0.59506 | 0.01599 |
 
-The frozen calibration artifact is applied during final scoring.
+The canonical model is **Logistic Regression** with:
+
+* 16 standardized features
+* median imputation
+* `StandardScaler`
+* `class_weight="balanced"`
+* `C=1.0`
+* `max_iter=2000`
+* `random_state=42`
+
+### Why Logistic Regression?
+
+XGBoost achieved a higher development ROC-AUC, but model selection was not based on ROC-AUC alone.
+
+The documented selection criteria also consider:
+
+* log loss
+* PR-AUC
+* severe class imbalance
+* probability quality
+* interpretability
+* calibration
+* ranking usefulness
+* business decision requirements
+
+Logistic Regression was selected based on the documented development criteria, particularly its log loss and PR-AUC, together with its interpretability and suitability for probability-based analysis.
+
+This makes the model-selection decision explainable rather than simply choosing the algorithm with the highest single metric.
+
+---
+
+## 8. Probability Calibration
+
+The canonical Logistic Regression model is followed by **sigmoid probability calibration**.
+
+Calibration is important because the model output is intended to represent a customer purchase propensity score rather than only a binary class label.
+
+The validation-period calibrator is fitted during development and frozen before final evaluation.
 
 Validation calibrated log loss:
 
@@ -173,320 +269,443 @@ Validation calibrated log loss:
 0.045555
 ```
 
-No recalibration is performed on the final test set.
+The final test period is not used to fit or recalibrate the model.
 
 ---
 
-## 7. Final Frozen Test Evaluation
+## 9. Final Frozen Test Results
 
-Final test snapshot:
-
-```text
-2018-06-19
-```
-
-Test population:
+The final frozen test contains:
 
 ```text
-76,857 customers
-314 buyers
-0.4086% buyer rate
+Customers: 76,857
+Buyers:       314
+Buyer Rate: 0.4086%
 ```
 
-Final metrics:
+### Final Metrics
 
-| Metric                      |       Result |
-| --------------------------- | -----------: |
-| Calibrated Log Loss         | **0.027060** |
-| ROC-AUC                     | **0.600515** |
-| PR-AUC                      | **0.011995** |
-| Accuracy at threshold 0.50  |      99.586% |
-| Precision at threshold 0.50 |        25.0% |
-| Recall at threshold 0.50    |       0.637% |
-| F1                          |      0.01242 |
+| Metric                       |   Result |
+| ---------------------------- | -------: |
+| Calibrated Log Loss          | 0.027060 |
+| ROC-AUC                      | 0.600515 |
+| PR-AUC                       | 0.011995 |
+| Accuracy (threshold = 0.50)  |  99.586% |
+| Precision (threshold = 0.50) |    25.0% |
+| Recall (threshold = 0.50)    |   0.637% |
+| F1 (threshold = 0.50)        |  0.01242 |
 
-Because only 0.409% of test customers purchased, accuracy at a 0.50 threshold is not an informative primary business metric.
+The severe class imbalance makes raw accuracy an insufficient primary metric.
 
-The project therefore emphasizes probability quality and customer ranking.
+A model can achieve high accuracy by predicting most customers as non-buyers while failing to identify the rare positive cases.
+
+Therefore, the project emphasizes:
+
+* log loss
+* PR-AUC
+* ROC-AUC
+* calibration
+* ranking performance
+* lift
+* capture
 
 ---
 
-## 8. Ranking Performance
+## 10. Customer Ranking and Campaign Capacity
 
-The final test ranking provides the following results:
+The primary business use case is ranking customers by predicted purchase propensity.
 
-| Customer segment | Customers | Buyers captured | Buyer rate |      Lift | Capture |
-| ---------------- | --------: | --------------: | ---------: | --------: | ------: |
-| Top 1%           |       769 |              24 |     3.121% | **7.64×** |   7.64% |
-| Top 5%           |     3,843 |              41 |     1.067% | **2.61×** |  13.06% |
-| Top 10%          |     7,686 |              63 |     0.820% | **2.01×** |  20.06% |
-| Top 20%          |    15,372 |             103 |     0.670% | **1.64×** |  32.80% |
+### Frozen-Test Ranking Results
 
-This makes the system more naturally suited to **prioritization/ranking** than binary classification at a default 0.50 threshold.
+| Targeted Population | Customers Targeted | Buyers Found | Buyer Rate |  Lift | Capture |
+| ------------------- | -----------------: | -----------: | ---------: | ----: | ------: |
+| Top 1%              |                769 |           24 |     3.121% | 7.64x |   7.64% |
+| Top 5%              |              3,843 |           41 |     1.067% | 2.61x |  13.06% |
+| Top 10%             |              7,686 |           63 |     0.820% | 2.01x |  20.06% |
+| Top 20%             |             15,372 |          103 |     0.670% | 1.64x |  32.80% |
+
+For example, the top 1% ranked segment has a 3.121% observed buyer rate compared with a 0.4086% overall buyer rate.
+
+This corresponds to approximately:
+
+```text
+7.64x lift
+```
+
+The ranking analysis is intended to support capacity-constrained customer prioritization. It does not establish that contacting a customer causes that customer to purchase.
+
+### Capacity-Aware Targeting
+
+Different campaign capacities can produce different operating points.
+
+For example:
+
+```text
+Top 1%
+769 customers
+24 buyers
+7.64% capture
+7.64x lift
+```
+
+versus:
+
+```text
+Top 10%
+7,686 customers
+63 buyers
+20.06% capture
+2.01x lift
+```
+
+The appropriate operating point should depend on business capacity, cost, customer experience, and measured incremental impact.
 
 ---
 
-## 9. Error Analysis
+## 11. Business Recommendations
 
-The final frozen test evaluation includes:
+The model should be treated as a prioritization signal rather than an automatic customer-action decision.
 
-* True-positive analysis
-* True-negative analysis
-* False-positive analysis
-* False-negative analysis
-* Segment-level diagnostics
-* High-confidence false-negative inspection
-* High-confidence false-positive inspection
+### 1. Use Ranking for Capacity-Constrained Targeting
 
-At a 0.50 classification threshold:
+Ranking customers by propensity is more aligned with campaign-capacity decisions than relying only on a fixed 0.50 classification threshold.
 
-```text
-True positives:   2
-False positives:  6
-False negatives: 312
-True negatives:   76,537
-```
+### 2. Monitor Ranking Quality
 
-The large number of false negatives at this threshold reinforces why ranking metrics are more informative for this rare-event use case.
+Relevant monitoring metrics include:
 
----
+* log loss
+* PR-AUC
+* calibration
+* lift
+* capture
+* buyer prevalence
 
-## 10. Model Explainability
+### 3. Monitor Distribution Shift
 
-The Logistic Regression coefficients are interpreted on standardized features.
+Feature distribution changes can affect model reliability. PSI and temporal distribution comparisons can help identify potential stability issues.
 
-The largest absolute standardized coefficients include:
+### 4. Do Not Interpret Predictive Associations as Causal Effects
 
-```text
-historical_avg_order_value   -0.443
-historical_seller_count      -0.407
-recency_days                 -0.402
-frequency                    +0.370
-monetary                     +0.304
-avg_sellers_per_order        +0.260
-customer_age_days            +0.257
-historical_item_count        +0.243
-avg_items_per_order          -0.237
-```
+A high-propensity customer is not necessarily a customer who will purchase because of a campaign.
 
-For a standardized feature, `exp(coefficient)` represents the model's odds multiplier for a one-standard-deviation increase, holding the other model features constant.
-
-These coefficients describe model associations, not causal effects.
-
-Several features are also related mathematically or behaviorally, so individual coefficients should not be interpreted as independent causal drivers.
+To measure incremental business impact, controlled treatment/control experimentation would be required.
 
 ---
 
-## 11. Temporal Drift and Stability
+## 12. Error Analysis and Explainability
 
-Temporal diagnostics compare the feature distributions of later snapshots against the earliest training snapshot.
-
-The strongest observed drift was concentrated in:
-
-* `recency_days`
-* `customer_age_days`
-
-By the final test snapshot, PSI was approximately:
+At the 0.50 classification threshold, the final test error breakdown is:
 
 ```text
-recency_days       0.518
-customer_age_days  0.523
+True Positives:    2
+False Positives:   6
+False Negatives: 312
+True Negatives: 76537
 ```
 
-Both indicate substantial distributional change under the project's PSI thresholds.
+This illustrates why the project focuses on ranking rather than relying only on binary classification at a fixed threshold.
 
-Most other monitored behavioral and transaction-value features showed substantially lower PSI.
+### Standardized Logistic Regression Coefficients
 
-The target prevalence also changed over time:
+| Feature                      | Standardized Coefficient |
+| ---------------------------- | -----------------------: |
+| `historical_avg_order_value` |                   -0.443 |
+| `historical_seller_count`    |                   -0.407 |
+| `recency_days`               |                   -0.402 |
+| `frequency`                  |                   +0.370 |
+| `monetary`                   |                   +0.304 |
+| `avg_sellers_per_order`      |                   +0.260 |
+| `customer_age_days`          |                   +0.257 |
+| `historical_item_count`      |                   +0.243 |
+| `avg_items_per_order`        |                   -0.237 |
 
-```text
-2017-09-01   1.019%
-2017-12-01   0.879%
-2018-03-01   0.796%
-2018-06-19   0.409%
-```
+For the standardized Logistic Regression model, a coefficient represents the change in log-odds associated with a one-standard-deviation increase in the feature, holding other model inputs constant.
 
-The project reports these changes as monitoring evidence. It does not claim that feature drift caused the target-prevalence decline.
+These coefficients represent **predictive associations, not causal effects**.
 
 ---
 
-## 12. Production Artifact Validation
+## 13. Drift and Monitoring
 
-The repository contains frozen production artifacts:
+The project evaluates feature distribution changes across temporal snapshots.
 
-```text
-data/model/artifacts/
-├── logistic_model.joblib
-├── sigmoid_calibrator.joblib
-└── model_metadata.json
-```
-
-The production validation script checks:
-
-* Model version
-* Feature count
-* Feature names
-* Pipeline structure
-* Coefficient dimensions
-* Calibrator availability
-* Test schema
-* Leakage-prone feature names
-* Batch prediction
-* Probability bounds
-* Deterministic inference
-
-Current validation result:
+The strongest observed PSI values include approximately:
 
 ```text
-STEP 24 RESULT: PASS
-Model remains frozen.
-No fitting or recalibration performed.
+recency_days       ~= 0.518
+customer_age_days  ~= 0.523
 ```
 
-This is an artifact/inference validation check, not a live production deployment or load test.
+These indicate substantial distributional change according to the project's configured monitoring thresholds.
+
+### Buyer-Rate Change
+
+| Snapshot   | Buyer Rate |
+| ---------- | ---------: |
+| 2017-09-01 |     1.019% |
+| 2017-12-01 |     0.879% |
+| 2018-03-01 |     0.796% |
+| 2018-06-19 |     0.409% |
+
+The observed distributional changes are relevant for model monitoring.
+
+The project does not claim that feature drift alone caused the decline in buyer prevalence.
+
+### Production Monitoring Areas
+
+A future production implementation should monitor:
+
+**Data Quality**
+
+* schema changes
+* missing values
+* feature ranges
+* unexpected values
+* row counts
+* duplicate records
+
+**Model Quality**
+
+* log loss
+* PR-AUC
+* ROC-AUC
+* calibration
+* lift
+* capture
+
+**Business Outcomes**
+
+* purchase rate
+* campaign response
+* customer engagement
+* campaign capacity
+* incremental impact
+
+**Distribution Shift**
+
+* PSI
+* feature distributions
+* target prevalence
+* temporal cohort behavior
 
 ---
 
-## 13. Reproducibility
+## 14. Production-Style Artifacts and Reproducibility
 
-The project pins its direct Python dependencies in:
-
-```text
-requirements.txt
-```
-
-The current development environment uses:
+The repository contains model artifacts including:
 
 ```text
-Python 3.14.7
-scikit-learn 1.9.1
-pandas 3.0.6
-numpy 2.5.3
-scipy 1.18.1
-duckdb 1.5.5
-joblib 1.6.0
-xgboost 3.4.1
+data/model/artifacts/logistic_model.joblib
+data/model/artifacts/sigmoid_calibrator.joblib
+data/model/artifacts/model_metadata.json
 ```
 
-The repository separates:
+The artifacts are validated before inference.
 
-1. Data preparation
-2. Model development
-3. Model selection
-4. Calibration
-5. Artifact locking
-6. Frozen evaluation
-7. Error analysis
-8. Explainability
-9. Drift diagnostics
-10. Production artifact validation
+Validation checks include:
 
-The final evaluation stage does not retrain or recalibrate the model.
+* model version
+* feature count
+* feature names
+* pipeline structure
+* coefficient dimensions
+* calibrator availability
+* input schema
+* leakage-prone feature names
+* probability bounds
+* batch prediction
+* deterministic inference
+
+Current validation status:
+
+```text
+STEP 24 PASS
+```
+
+The final model artifact is frozen after evaluation.
+
+### Reproducibility
+
+The project records direct dependency versions including:
+
+```text
+Python        3.14.7
+scikit-learn  1.9.1
+pandas        3.0.6
+numpy         2.5.3
+scipy         1.18.1
+duckdb        1.5.5
+joblib        1.6.0
+xgboost       3.4.1
+```
+
+The workflow separates:
+
+```text
+Data Preparation
+      |
+Model Development
+      |
+Model Selection
+      |
+Calibration
+      |
+Artifact Locking
+      |
+Frozen Evaluation
+      |
+Error Analysis
+      |
+Explainability
+      |
+Drift Diagnostics
+      |
+Production Validation
+```
+
+The project includes production-style artifact and inference validation but does **not** claim a live production deployment.
 
 ---
 
-## 14. Repository Structure
+## 15. Interview-Relevant Design Decisions
+
+### Why Purchase Propensity Instead of Ordinary Classification?
+
+The intended business action is customer prioritization. Ranking customers by relative purchase propensity is more useful than producing only a yes/no prediction.
+
+### Why Not Use a Random Train/Test Split?
+
+The prediction setting is temporal. Random splitting can allow future-period patterns to influence training and produce an overly optimistic evaluation.
+
+### How Was Leakage Prevented?
+
+Features are constructed from information available at the prediction snapshot, while future purchase behavior is reserved for target construction.
+
+### Why Is Accuracy Misleading?
+
+Only 0.4086% of final-test customers purchase within the target horizon. High accuracy can therefore coexist with poor identification of buyers.
+
+### Why Use PR-AUC?
+
+PR-AUC is useful for evaluating rare positive classes because it focuses on precision-recall behavior under severe class imbalance.
+
+### Why Use Log Loss?
+
+The system produces probability estimates, so probability quality matters in addition to ranking.
+
+### Why Use Logistic Regression?
+
+It provides an interpretable model while supporting probability estimation and coefficient-level analysis.
+
+### Why Not Automatically Select XGBoost?
+
+XGBoost achieved higher development ROC-AUC, but model selection also considered log loss, PR-AUC, calibration, interpretability, and the business objective.
+
+### Why Calibrate Probabilities?
+
+A propensity system benefits from probability estimates that are better calibrated for downstream ranking and analysis.
+
+### Why Freeze Calibration?
+
+Using the final test period to fit or recalibrate the model would contaminate the final evaluation.
+
+### What Does 7.64x Lift Mean?
+
+The top 1% ranked segment has an observed purchase rate approximately 7.64 times the overall test-set buyer rate.
+
+### Is the Model Causal?
+
+No. The model estimates predictive propensity and does not establish that a marketing intervention causes a purchase.
+
+### What Is the Largest Methodological Limitation?
+
+Only one genuine temporal development fold is available for model selection.
+
+### What Would Be Improved With Additional Data?
+
+Potential improvements include:
+
+* additional temporal snapshots
+* rolling-window validation
+* stronger calibration evaluation
+* calibrated tree-based models
+* automated drift monitoring
+* campaign-capacity optimization
+* controlled incremental-impact experiments
+* more recent or live data
+
+---
+
+## 16. Key Limitations
+
+The project explicitly documents the following limitations:
+
+1. **Limited temporal development data** - only one genuine temporal development fold is available for model selection.
+2. **Severe class imbalance** - the final buyer rate is 0.4086%.
+3. **Historical final test** - the final test is a frozen historical evaluation period rather than a live production stream.
+4. **No live deployment** - the project contains production-style validation but does not claim live production deployment.
+5. **No causal inference** - the model estimates predictive propensity rather than incremental treatment effect.
+6. **Temporal distribution shift** - feature distributions and buyer prevalence change across temporal snapshots.
+
+These limitations are retained explicitly so that the results are interpreted within their proper scope.
+
+---
+
+## 17. Repository Structure and Project Status
 
 ```text
-customer-experience-churn-intelligence/
-│
+customer-experience-purchase-propensity-intelligence/
+|
+├── audits/
+|
 ├── data/
 │   └── model/
 │       └── artifacts/
-│
+|
 ├── docs/
 │   └── ARCHITECTURE.md
-│
+|
+├── models/
+|
 ├── notebooks/
-│
+|
 ├── sql/
-│   ├── customer metrics
-│   ├── customer experience
-│   ├── snapshot features
-│   ├── future targets
-│   ├── modeling table
-│   └── leakage audit
-│
+|
 ├── src/
-│   ├── data preparation
-│   ├── feature engineering
-│   ├── temporal validation
-│   ├── model comparison
-│   ├── model training
-│   ├── calibration
-│   ├── final evaluation
-│   ├── error analysis
-│   ├── explainability
-│   ├── drift diagnostics
-│   └── production validation
-│
-├── requirements.txt
-└── README.md
+|
+├── tests/
+|
+├── .gitignore
+├── README.md
+└── requirements.txt
 ```
 
-Raw data and generated analysis outputs are excluded from version control.
+The repository separates analytical code, SQL workflows, model artifacts, documentation, tests, and notebooks.
 
----
+### Project Status
 
-## 15. Key Limitations
+The project includes:
 
-### Single development temporal fold
+* SQL-based analytical workflow
+* customer-level feature engineering
+* temporal validation
+* leakage prevention
+* baseline comparison
+* Logistic Regression modeling
+* Random Forest comparison
+* XGBoost comparison
+* probability calibration
+* frozen final evaluation
+* propensity ranking
+* lift and capture analysis
+* campaign-capacity analysis
+* error analysis
+* coefficient-based explainability
+* temporal drift diagnostics
+* production artifact validation
+* reproducibility checks
+* automated tests
+* documented limitations
 
-Only two snapshots are available in the training period, so model comparison uses one genuine expanding temporal development fold rather than a conventional multi-fold cross-validation design.
-
-### Severe class imbalance
-
-The final test buyer rate is only 0.409%. Threshold-based accuracy is therefore highly misleading.
-
-### Historical dataset
-
-The final test period is historical rather than a live production stream.
-
-### No live deployment
-
-The project validates production-style artifacts and deterministic inference but does not claim a deployed, monitored production service.
-
-### No causal inference
-
-Model coefficients and segment patterns describe statistical associations within the model. They do not establish that changing a feature will cause purchasing behavior to change.
-
-### Temporal distribution shift
-
-Recency and customer age exhibit substantial distributional drift between the earliest training snapshot and the final test snapshot.
-
----
-
-## 16. Core Design Principles
-
-The project prioritizes:
-
-1. Temporal validation over random splitting
-2. Leakage prevention over metric optimization
-3. Frozen artifacts over repeated test-set experimentation
-4. Ranking metrics for rare-event targeting
-5. Probability quality through calibration
-6. Interpretable models where appropriate
-7. Explicit limitations over inflated claims
-8. Reproducible production-style inference
-9. Separation of development and final test evaluation
-10. Transparent error and drift diagnostics
-
----
-
-## 17. Project Status
-
-```text
-Data validation                         COMPLETE
-Feature engineering                     COMPLETE
-Temporal split                          COMPLETE
-Model comparison                        COMPLETE
-Canonical model selection               COMPLETE
-Probability calibration                 COMPLETE
-Frozen final test evaluation            COMPLETE
-Error analysis                          COMPLETE
-Explainability                          COMPLETE
-Temporal drift diagnostics               COMPLETE
-Production artifact validation           COMPLETE
-Repository reproducibility               COMPLETE
-Documentation                            COMPLETE                           
-```
+The project is intended as an end-to-end **Data Science / Customer Analytics / Predictive Modeling** portfolio project demonstrating the workflow from analytical data preparation through model evaluation and business-oriented decision support.
